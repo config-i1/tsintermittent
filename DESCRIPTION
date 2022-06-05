@@ -1,9 +1,9 @@
 Package: tsintermittent
 Type: Package
 Title: Intermittent Time Series Forecasting
-Version: 1.9
-Date: 2016-03-10
-Author: Nikolaos Kourentzes and Fotios Petropoulos
+Version: 2.0
+Date: 2022-06-05
+Author: Nikolaos Kourentzes and Fotios Petropoulos and Ivan Svetunkov
 Maintainer: Nikolaos Kourentzes <n.kourentzes@lancaster.ac.uk> 
 Description: Functions for analysing and forecasting intermittent demand/slow moving items time series.
 LazyData: yes

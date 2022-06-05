@@ -1,7 +1,8 @@
 tsb <- function(data,h=10,w=NULL,init=c("mean","naive"),
                 cost=c("mar","msr","mae","mse"),
                 init.opt=c(TRUE,FALSE),outplot=c(FALSE,TRUE),
-                opt.on=c(FALSE,TRUE),na.rm=c(FALSE,TRUE)){
+                opt.on=c(FALSE,TRUE),na.rm=c(FALSE,TRUE),
+                holdout=FALSE){
 # TSB method
 #
 # Inputs:
@@ -72,11 +73,24 @@ tsb <- function(data,h=10,w=NULL,init=c("mean","naive"),
   if (na.rm == TRUE){
     data <- data[!is.na(data)]
   }
-  n <- length(data)
+  
+  # Sample and holdout
+  obsInSample <- length(data);
+  if(holdout){
+    obsAll <- obsInSample;
+    obsInSample[] <- obsInSample-h;
+    yInSample <- data[1:obsInSample];
+    yHoldout <- data[-c(1:obsInSample)];
+  }
+  else{
+    obsAll <- obsInSample+h;
+    yInSample <- data;
+    yHoldout <- NULL;
+  }
   
   # TSB decomposition
-  p <- as.numeric(data!=0)    # Demand probability
-  z <- data[data!=0]          # Non-zero demand
+  p <- as.numeric(yInSample!=0)    # Demand probability
+  z <- yInSample[yInSample!=0]          # Non-zero demand
   
   # Initialise
   if (!(is.numeric(init) && length(init)==2)){
@@ -90,7 +104,7 @@ tsb <- function(data,h=10,w=NULL,init=c("mean","naive"),
   # Optimise parameters if requested
   if (opt.on == FALSE){
     if (is.null(w) || init.opt == TRUE){
-      wopt <- tsb.opt(data,cost,w,init,init.opt)
+      wopt <- tsb.opt(yInSample,cost,w,init,init.opt)
       w <- wopt$w
       init <- wopt$init
     } else {
@@ -103,8 +117,8 @@ tsb <- function(data,h=10,w=NULL,init=c("mean","naive"),
   }
   
   # Pre-allocate memory
-  zfit <- vector("numeric",n)
-  pfit <- vector("numeric",n)
+  zfit <- vector("numeric",obsInSample)
+  pfit <- vector("numeric",obsInSample)
   
   # Assign initial values and parameters
   if (opt.on == FALSE){
@@ -119,35 +133,35 @@ tsb <- function(data,h=10,w=NULL,init=c("mean","naive"),
   pfit[1] <- init[2]
   
   # Fit model
-  for (i in 2:n){
+  for (i in 2:obsInSample){
     pfit[i] <- pfit[i-1] + w[2]*(p[i]-pfit[i-1])        # Demand probability
     if (p[i]==0){
       zfit[i] <- zfit[i-1]
     } else {
-      zfit[i] <- zfit[i-1] + w[1]*(data[i]-zfit[i-1])   # Demand
+      zfit[i] <- zfit[i-1] + w[1]*(yInSample[i]-zfit[i-1])   # Demand
     }
   }
   yfit <- pfit*zfit
   
-  frc.in <- c(NA,yfit[1:(n-1)])
+  frc.in <- c(NA,yfit[1:(obsInSample-1)])
   if (h>0){
-    frc.out <- rep(yfit[n],h)
+    frc.out <- rep(yfit[obsInSample],h)
   } else {
     frc.out = NULL
   }
   
   # Plot
   if (outplot==TRUE){
-    plot(1:n,data,type="l",xlim=c(1,(n+h)),xlab="Period",ylab="",
+    plot(data,type="l",xlim=c(1,obsAll),xlab="Period",ylab="",
          xaxs="i",yaxs="i",ylim=c(0,max(data)*1.1))
-    lines(which(data>0),data[data>0],type="p",pch=20)
-    lines(1:n,frc.in,col="red")
-    lines((n+1):(n+h),frc.out,col="red",lwd=2)
+    lines(which(yInSample>0),yInSample[yInSample>0],type="p",pch=20)
+    lines(1:obsInSample,frc.in,col="red")
+    lines((obsInSample+1):(obsInSample+h),frc.out,col="red",lwd=2)
   }
   
-  return(list(model="tsb",frc.in=frc.in,frc.out=frc.out,
-              weights=w,initial=c(zfit[1],pfit[1])))
-  
+  return(list(model="tsb",data=yInSample,holdout=yHoldout,
+              fitted=frc.in,mean=frc.out,
+              weights=w,initial=c(zfit[1],pfit[1])));
 }
 
 #-------------------------------------------------
@@ -211,18 +225,18 @@ tsb.cost <- function(p0,data,cost,w,w.opt,init,init.opt,lbound,ubound){
     E <- E[!is.na(E)]
     E <- mean(abs(E))
   } else if(cost == "mar"){
-    n <- length(data)
-    temp <- cumsum(data)/(1:n)
-    n <- ceiling(0.3*n)
-    temp[1:n] <- temp[n]
+    obsInSample <- length(data)
+    temp <- cumsum(data)/(1:obsInSample)
+    obsInSample <- ceiling(0.3*obsInSample)
+    temp[1:obsInSample] <- temp[obsInSample]
     E <- abs(frc.in - temp)
     E <- E[!is.na(E)]
     E <- sum(E)
   } else if(cost == "msr"){
-    n <- length(data)
-    temp <- cumsum(data)/(1:n)
-    n <- ceiling(0.3*n)
-    temp[1:n] <- temp[n]
+    obsInSample <- length(data)
+    temp <- cumsum(data)/(1:obsInSample)
+    obsInSample <- ceiling(0.3*obsInSample)
+    temp[1:obsInSample] <- temp[obsInSample]
     E <- (frc.in - temp)^2
     E <- E[!is.na(E)]
     E <- sum(E)    

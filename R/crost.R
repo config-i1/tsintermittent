@@ -1,7 +1,7 @@
 crost <- function(data,h=10,w=NULL,init=c("mean","naive"),nop=c(2,1),
                   type=c("croston","sba","sbj"),cost=c("mar","msr","mae","mse"),
                   init.opt=c(TRUE,FALSE),outplot=c(FALSE,TRUE),opt.on=c(FALSE,TRUE),
-                  na.rm=c(FALSE,TRUE)){
+                  na.rm=c(FALSE,TRUE), holdout=FALSE){
 # Croston method and variants
 #
 # Inputs:
@@ -76,10 +76,11 @@ crost <- function(data,h=10,w=NULL,init=c("mean","naive"),nop=c(2,1),
   }
   
   # Make sure that nop is of correct lenght
-  if (nop>2 || nop<1){
-    nop <- 2
-    warning("nop can be either 1 or 2. Overriden to 2.")
-  }
+  nop <- as.numeric(match.arg(as.character(nop),c("2","1")))
+  # if (nop>2 || nop<1){
+  #   nop <- 2
+  #   warning("nop can be either 1 or 2. Overriden to 2.")
+  # }
   
   # Prepare data
   if (class(data)=="data.frame"){
@@ -91,17 +92,30 @@ crost <- function(data,h=10,w=NULL,init=c("mean","naive"),nop=c(2,1),
   if (na.rm == TRUE){
     data <- data[!is.na(data)]
   }
-  n <- length(data)
+  
+  # Sample and holdout
+  obsInSample <- length(data);
+  if(holdout){
+    obsAll <- obsInSample;
+    obsInSample[] <- obsInSample-h;
+    yInSample <- data[1:obsInSample];
+    yHoldout <- data[-c(1:obsInSample)];
+  }
+  else{
+    obsAll <- obsInSample+h;
+    yInSample <- data;
+    yHoldout <- NULL;
+  }
   
   # Check number of non-zero values - need to have at least two
-  if (sum(data!=0)<2){
+  if (sum(yInSample!=0)<2){
     stop("Need at least two non-zero values to model time series.")
   }
   
   # Croston decomposition
-  nzd <- which(data != 0)               # Find location on non-zero demand
+  nzd <- which(yInSample != 0)               # Find location on non-zero demand
   k <- length(nzd)
-  z <- data[nzd]                        # Demand
+  z <- yInSample[nzd]                        # Demand
   x <- c(nzd[1],nzd[2:k]-nzd[1:(k-1)])  # Intervals
   
   # Initialise
@@ -116,7 +130,7 @@ crost <- function(data,h=10,w=NULL,init=c("mean","naive"),nop=c(2,1),
   # Optimise parameters if requested
   if (opt.on == FALSE){
     if (is.null(w) || init.opt == TRUE){
-      wopt <- crost.opt(data,type,cost,w,nop,init,init.opt)
+      wopt <- crost.opt(yInSample,type,cost,w,nop,init,init.opt)
       w <- wopt$w
       init <- wopt$init
     }
@@ -163,13 +177,13 @@ crost <- function(data,h=10,w=NULL,init=c("mean","naive"),nop=c(2,1),
   cc <- coeff * zfit/xfit
   
   # Calculate in-sample demand rate
-  frc.in <- x.in <- z.in <- rep(NA,n)
-  tv <- c(nzd+1,n)  # Time vector used to create frc.in forecasts
+  frc.in <- x.in <- z.in <- rep(NA,obsInSample)
+  tv <- c(nzd+1,obsInSample)  # Time vector used to create frc.in forecasts
   for (i in 1:k){
-    if (tv[i]<=n){
-      frc.in[tv[i]:min(c(tv[i+1],n))] <- cc[i]
-      x.in[tv[i]:min(c(tv[i+1],n))] <- xfit[i]
-      z.in[tv[i]:min(c(tv[i+1],n))] <- zfit[i]
+    if (tv[i]<=obsInSample){
+      frc.in[tv[i]:min(c(tv[i+1],obsInSample))] <- cc[i]
+      x.in[tv[i]:min(c(tv[i+1],obsInSample))] <- xfit[i]
+      z.in[tv[i]:min(c(tv[i+1],obsInSample))] <- zfit[i]
     }
   }
   
@@ -184,11 +198,11 @@ crost <- function(data,h=10,w=NULL,init=c("mean","naive"),nop=c(2,1),
   
   # Plot
   if (outplot==TRUE){
-    plot(1:n,data,type="l",xlim=c(1,(n+h)),xlab="Period",ylab="",
+    plot(data,type="l",xlim=c(1,obsAll),xlab="Period",ylab="",
          xaxs="i",yaxs="i",ylim=c(0,max(data)*1.1))
-    lines(which(data>0),data[data>0],type="p",pch=20)
-    lines(1:n,frc.in,col="red")
-    lines((n+1):(n+h),frc.out,col="red",lwd=2)
+    lines(which(yInSample>0),yInSample[yInSample>0],type="p",pch=20)
+    lines(1:obsInSample,frc.in,col="red")
+    lines((obsInSample+1):(obsInSample+h),frc.out,col="red",lwd=2)
   }
   
   # Prepare output - Assign weight to intervals if same with demand
@@ -197,7 +211,7 @@ crost <- function(data,h=10,w=NULL,init=c("mean","naive"),nop=c(2,1),
   }
 
   # Prepare demand and interval vectors for output
-  c.in <- array(cbind(z.in,x.in),c(n,2),dimnames=list(NULL,c("Demand","Interval")))
+  c.in <- array(cbind(z.in,x.in),c(obsInSample,2),dimnames=list(NULL,c("Demand","Interval")))
   if (h>0){
     c.out <- array(cbind(z.out,x.out),c(h,2),dimnames=list(NULL,c("Demand","Interval")))
   } else {
@@ -206,7 +220,8 @@ crost <- function(data,h=10,w=NULL,init=c("mean","naive"),nop=c(2,1),
   c.coeff <- coeff
   comp <- list(c.in=c.in,c.out=c.out,coeff=coeff)
   
-  return(list(model=type,frc.in=frc.in,frc.out=frc.out,
+  return(list(model=type,data=yInSample,holdout=yHoldout,
+              fitted=frc.in,mean=frc.out,
               weights=w,initial=c(zfit[1],xfit[1]),components=comp))
 
 }
